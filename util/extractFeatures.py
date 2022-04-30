@@ -2,6 +2,8 @@
 """
 Author: CHANDAN ACHARYA.
 Date : 1 May 2019.
+Contributor：Eliysiumar
+Date : 30 April 2022.
 """
 ########################### LIBRARIES #########################################
 from matplotlib import pyplot as plt
@@ -13,7 +15,6 @@ from scipy.stats import kurtosis
 from scipy.stats import skew
 from scipy.fft import fft
 import scipy.signal as signal
-from biosppy.signals import ecg
 import neurokit2 as nk
 import sys
 
@@ -237,115 +238,72 @@ def slidingWindow(sequence, winSize, step):
 
 ####################### FEATURE EXTRACTION ####################################
 
-def feature_extract(peaks=None, list_rri=None, feature_name_list=None, Fs=250):
+def feature_extract(data=None, peaks=None, feature_name_list=None, Fs=250):
     feature_dict = {}
     # if feature_name in ["RMSSD", "SDSD", "AVRR", "SDRR", "SKEW", "KURT", "NNx", "pNNx", "SD1", "SD2",
     #                     "SD1/SD2", "CSI", "CVI", "modifiedCVI"]:
     # 线性时域特征
     if "RMSSD" in feature_name_list:
-        feature_dict["RMSSD"] = calc_rmssd(list_rri)
+        feature_dict["RMSSD"] = calc_rmssd(data)
         # feature_name_list.remove("RMSSD")
     if "SDSD" in feature_name_list:
-        feature_dict["SDSD"] = calc_sdsd(list_rri)
+        feature_dict["SDSD"] = calc_sdsd(data)
         # feature_name_list.remove("SDSD")
     if "AVRR" in feature_name_list:
-        feature_dict["AVRR"] = calc_avrr(list_rri)
+        feature_dict["AVRR"] = calc_avrr(data)
         # feature_name_list.remove("AVRR")
     if "SDRR" in feature_name_list:
-        feature_dict["SDRR"] = calc_sdrr(list_rri)
+        feature_dict["SDRR"] = calc_sdrr(data)
         # feature_name_list.remove("SDRR")
     if "SKEW" in feature_name_list:
-        feature_dict["SKEW"] = calc_skew(list_rri)
+        feature_dict["SKEW"] = calc_skew(data)
         # feature_name_list.remove("SKEW")
     if "KURT" in feature_name_list:
-        feature_dict["KURT"] = calc_kurt(list_rri)
+        feature_dict["KURT"] = calc_kurt(data)
         # feature_name_list.remove("KURT")
     if "NNx" in feature_name_list:
-        feature_dict["NNx"] = calc_NNx(list_rri)
+        feature_dict["NNx"] = calc_NNx(data)
         # feature_name_list.remove("NNx")
     if "pNNx" in feature_name_list:
-        feature_dict["pNNx"] = calc_pNNx(list_rri)
+        feature_dict["pNNx"] = calc_pNNx(data)
         # feature_name_list.remove("pNNx")
     # 非线性时域特征
     if "SD1" in feature_name_list:
-        feature_dict["SD1"] = calc_SD1(list_rri)
+        feature_dict["SD1"] = calc_SD1(data)
         # feature_name_list.remove("SD1")
     if "SD2" in feature_name_list:
-        feature_dict["SD2"] = calc_SD2(list_rri)
+        feature_dict["SD2"] = calc_SD2(data)
         # feature_name_list.remove("SD2")
     if "SD1/SD2" in feature_name_list:
-        feature_dict["SD1/SD2"] = calc_SD1overSD2(list_rri)
+        feature_dict["SD1/SD2"] = calc_SD1overSD2(data)
         # feature_name_list.remove("SD1/SD2")
     if "CSI" in feature_name_list:
-        feature_dict["CSI"] = calc_CSI(list_rri)
+        feature_dict["CSI"] = calc_CSI(data)
         # feature_name_list.remove("CSI")
     if "CVI" in feature_name_list:
-        feature_dict["CVI"] = calc_CVI(list_rri)
+        feature_dict["CVI"] = calc_CVI(data)
         # feature_name_list.remove("CVI")
     if "modifiedCVI" in feature_name_list:
-        feature_dict["modifiedCVI"] = calc_modifiedCVI(list_rri)
+        feature_dict["modifiedCVI"] = calc_modifiedCVI(data)
         # feature_name_list.remove("modifiedCVI")
     if "En" in feature_name_list:
-        feature_dict["En"] = calc_En(list_rri)
+        feature_dict["En"] = calc_En(data)
     # 频域特征
+
     if len(set(feature_name_list) & {'VLF', 'LF', 'HF', 'LF/HF', 'LF/TP', 'HF/TP'}) > 0:
-        # frequency_dict = calc_frequency(peaks, Fs)
-        frequency_dict = nk.hrv_frequency(peaks=peaks, sampling_rate=Fs)
+        frequency_dict = calc_frequency(y_data=data, Fs=Fs,
+                                        # x_data=peaks[1:]
+                                        )
 
-        if 'VLF' in feature_name_list:
-            feature_dict['VLF'] = float(frequency_dict.get('HRV_VLF'))
-            # feature_name_list.remove('VLF')
-        if 'LF' in feature_name_list:
-            feature_dict['LF'] = float(frequency_dict.get('HRV_LF'))
-            # feature_name_list.remove('LF')
-        if 'HF' in feature_name_list:
-            feature_dict['HF'] = float(frequency_dict.get('HRV_HF'))
-            # feature_name_list.remove('HF')
-        if 'LF/HF' in feature_name_list:
-            feature_dict['LF/HF'] = float(frequency_dict.get('HRV_LFHF'))
-            # feature_name_list.remove('LF/HF')
-        if 'LF/TP' in feature_name_list:
-            feature_dict['LF/TP'] = float(frequency_dict.get('HRV_LFn'))
-            # feature_name_list.remove('LF/TP')
-        if 'HF/TP' in feature_name_list:
-            feature_dict['HF/TP'] = float(frequency_dict.get('HRV_HFn'))
-            # feature_name_list.remove('HF/TP')
-
-        # if len(set(feature_name_list) & {'VLF', 'LF', 'HF', 'LF/HF', 'LF/TP', 'HF/TP'}) > 0:
-        #     frequency_dict = calc_frequency(y_data=list_rri, Fs=Fs,
-        #                                     x_data=peaks[1:]
-        #                                     )
-        #
-        #     feature_dict['VLF_1'] = float(frequency_dict.get('VLF'))
-        #     feature_dict['LF_1'] = float(frequency_dict.get('LF'))
-        #     feature_dict['HF_1'] = float(frequency_dict.get('HF'))
-        #     feature_dict['LF/HF_1'] = float(frequency_dict.get('LF/HF'))
-        #     feature_dict['LF/TP_1'] = float(frequency_dict.get('LF/TP'))
-        #     feature_dict['HF/TP_1'] = float(frequency_dict.get('HF/TP'))
+        feature_dict['VLF'] = float(frequency_dict.get('VLF'))
+        feature_dict['LF'] = float(frequency_dict.get('LF'))
+        feature_dict['HF'] = float(frequency_dict.get('HF'))
+        feature_dict['VHF'] = float(frequency_dict.get('VHF'))
+        feature_dict['LF/HF'] = float(frequency_dict.get('LF/HF'))
+        feature_dict['LF/TP'] = float(frequency_dict.get('LF/TP'))
+        feature_dict['HF/TP'] = float(frequency_dict.get('HF/TP'))
     return feature_dict
 
-
-def feature_extract_rsp(rsp_rate, info, feature_name_list=None, Fs=100):
-    feature_dict = {}
-    frequency_dict = nk.rsp_rrv(rsp_rate, info, sampling_rate=Fs)
-    if 'VLF' in feature_name_list:
-        feature_dict['VLF'] = float(frequency_dict.get('RRV_VLF'))
-        # feature_name_list.remove('VLF')
-    if 'LF' in feature_name_list:
-        feature_dict['LF'] = float(frequency_dict.get('RRV_LF'))
-        # feature_name_list.remove('LF')
-    if 'HF' in feature_name_list:
-        feature_dict['HF'] = float(frequency_dict.get('RRV_HF'))
-        # feature_name_list.remove('HF')
-    if 'LF/HF' in feature_name_list:
-        feature_dict['LF/HF'] = float(frequency_dict.get('RRV_LFHF'))
-        # feature_name_list.remove('LF/HF')
-    if 'LF/TP' in feature_name_list:
-        feature_dict['LF/TP'] = float(frequency_dict.get('RRV_LFn'))
-        # feature_name_list.remove('LF/TP')
-    if 'HF/TP' in feature_name_list:
-        feature_dict['HF/TP'] = float(frequency_dict.get('RRV_HFn'))
-    return feature_dict
 
 
 ########################### PLOTTING ##########################################
