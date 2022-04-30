@@ -10,10 +10,10 @@
 ################################################################################
 
 from helper_code import *
-import numpy as np, scipy as sp, scipy.stats, os, sys, joblib
+import scipy as sp, scipy.stats, joblib
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestClassifier
-from utils import *
+from util.utils import *
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
@@ -37,6 +37,7 @@ def train_challenge_model(data_folder, model_folder, verbose):
 
     # Find the patient data files.
     patient_files = find_patient_files(data_folder)
+
     num_patient_files = len(patient_files)
 
     if num_patient_files == 0:
@@ -62,22 +63,23 @@ def train_challenge_model(data_folder, model_folder, verbose):
         hs_data = HeartSound(patient_files[i], data_folder)
         hs_data.load_hs_note()
         hs_data.preprocess_recordings()
-        1/0
+        current_patient_data = hs_data.get_patient_data()
+        current_recordings = hs_data.get_recordings()
         # hs_data.plot_data()
 
         # plot_data([current_recordings[0]], Fs=Fs, pic_name=get_patient_id(current_patient_data), is_show=True)
         # Extract features.
-        # current_features = get_features(current_patient_data, current_recordings)
-        # features.append(current_features)
-        #
-        # # Extract labels and use one-hot encoding.
-        # current_labels = np.zeros(num_classes, dtype=int)
-        # label = get_label(current_patient_data)
-        # if label in classes:
-        #     j = classes.index(label)
-        #     current_labels[j] = 1
-        # labels.append(current_labels)
-    1 / 0
+        current_features = get_features(current_patient_data, current_recordings)
+        features.append(current_features)
+
+        # Extract labels and use one-hot encoding.
+        current_labels = np.zeros(num_classes, dtype=int)
+        label = get_label(current_patient_data)
+        if label in classes:
+            j = classes.index(label)
+            current_labels[j] = 1
+        labels.append(current_labels)
+
 
     features = np.vstack(features)
     labels = np.vstack(labels)
@@ -151,6 +153,7 @@ def save_challenge_model(model_folder, classes, imputer, classifier):
 
 # Extract features from the data.
 def get_features(data, recordings):
+    # TODO：改进特征提取
     # Extract the age group and replace with the (approximate) number of months for the middle of the age group.
     age_group = get_age(data)
 
@@ -226,6 +229,12 @@ class HeartSound():
         self.data_number = get_patient_id(self.current_patient_data)
         self.recording_locations = get_locations(self.current_patient_data)
 
+    def get_patient_data(self):
+        return self.current_patient_data
+
+    def get_recordings(self):
+        return self.recording_list
+
     def load_hs_note(self):
         num_locations = get_num_locations(self.current_patient_data)
         recording_information = self.current_patient_data.split('\n')[1:num_locations + 1]
@@ -238,6 +247,7 @@ class HeartSound():
         return self.hs_note_list
 
     def preprocess_recordings(self):
+        # TODO:更多预处理
         for idx, recording in enumerate(self.recording_list):
             processed_recording = StandardScaler().fit_transform(recording.reshape(-1, 1)).reshape(1, -1)[0]
             processed_recording_1 = self.hs_clean(processed_recording, self.Fs[idx])
@@ -269,7 +279,7 @@ class HeartSound():
         filtered = scipy.signal.filtfilt(b, a, data)
         return filtered
 
-    def plot_data(self, with_hs_note=False, is_show=True):
+    def plot_data(self, is_show=True):
         data = self.recording_list[0]
         Fs = self.Fs[0]
         plt.figure()
@@ -278,4 +288,5 @@ class HeartSound():
         if is_show:
             plt.show()
         plt.close()
-        # if with_hs_note:
+
+
