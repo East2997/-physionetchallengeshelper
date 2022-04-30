@@ -8,7 +8,6 @@
 # Import libraries and functions. You can change or remove them.
 #
 ################################################################################
-
 from helper_code import *
 import scipy as sp, scipy.stats, joblib
 from sklearn.impute import SimpleImputer
@@ -104,6 +103,7 @@ def train_challenge_model(data_folder, model_folder, verbose):
     if verbose >= 1:
         print('Done.')
 
+    #TODO：利用run_challenge_model()计算准确度、Kappa和损失函数
 
 # Load your trained model. This function is *required*. You should edit this function to add your code, but do *not* change the
 # arguments of this function.
