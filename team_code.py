@@ -8,6 +8,7 @@
 # Import libraries and functions. You can change or remove them.
 #
 ################################################################################
+import numpy as np
 from helper_code import *
 import scipy as sp, scipy.stats, joblib
 from sklearn.impute import SimpleImputer
@@ -16,6 +17,7 @@ from util.utils import *
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, cohen_kappa_score
 import scipy.signal
 
 ################################################################################
@@ -26,84 +28,34 @@ import scipy.signal
 
 debug_result_root_path = "debug_result"
 check_dir(debug_result_root_path)
+test_data_folder = "..\\data\\split_test_data"
 
 
 # Train your model.
 def train_challenge_model(data_folder, model_folder, verbose):
-    # Find data files.
-    if verbose >= 1:
-        print('Finding data files...')
-
-    # Find the patient data files.
-    patient_files = find_patient_files(data_folder)
-
-    num_patient_files = len(patient_files)
-
-    if num_patient_files == 0:
-        raise Exception('No data was provided.')
-
     # Create a folder for the model if it does not already exist.
     os.makedirs(model_folder, exist_ok=True)
-
-    classes = ['Present', 'Unknown', 'Absent']
-    num_classes = len(classes)
-
-    # Extract the features and labels.
-    if verbose >= 1:
-        print('Extracting features and labels from the Challenge data...')
-
-    features = list()
-    labels = list()
-
-    for i in range(num_patient_files):
-        if verbose >= 2:
-            print('    {}/{}...'.format(i + 1, num_patient_files))
-
-        hs_data = HeartSound(patient_files[i], data_folder)
-        hs_data.load_hs_note()
-        hs_data.preprocess_recordings()
-        current_patient_data = hs_data.get_patient_data()
-        current_recordings = hs_data.get_recordings()
-        # hs_data.plot_data()
-
-        # plot_data([current_recordings[0]], Fs=Fs, pic_name=get_patient_id(current_patient_data), is_show=True)
-        # Extract features.
-        current_features = get_features(current_patient_data, current_recordings)
-        features.append(current_features)
-
-        # Extract labels and use one-hot encoding.
-        current_labels = np.zeros(num_classes, dtype=int)
-        label = get_label(current_patient_data)
-        if label in classes:
-            j = classes.index(label)
-            current_labels[j] = 1
-        labels.append(current_labels)
-
-
-    features = np.vstack(features)
-    labels = np.vstack(labels)
+    X_train, Y_train = preprocess_data(data_folder,verbose)
+    X_test, Y_test = preprocess_data(test_data_folder,verbose)
 
     # Train the model.
     if verbose >= 1:
         print('Training model...')
 
-    # Define parameters for random forest classifier.
-    n_estimators = 10  # Number of trees in the forest.
-    max_leaf_nodes = 100  # Maximum number of leaf nodes in each tree.
-    random_state = 123  # Random state; set for reproducibility.
-
-    imputer = SimpleImputer().fit(features)
-    features = imputer.transform(features)
-    classifier = RandomForestClassifier(n_estimators=n_estimators, max_leaf_nodes=max_leaf_nodes,
-                                        random_state=random_state).fit(features, labels)
+    model = model_random_forest(X_train, Y_train)
 
     # Save the model.
-    save_challenge_model(model_folder, classes, imputer, classifier)
+    save_challenge_model(model_folder, model)
 
     if verbose >= 1:
         print('Done.')
 
+
     #TODO：利用run_challenge_model()计算准确度、Kappa和损失函数
+    print("训练集评估：")
+    evaluate_model(model, X_train, Y_train)
+    print("测试集评估：")
+    evaluate_model(model, X_test, Y_test)
 
 # Load your trained model. This function is *required*. You should edit this function to add your code, but do *not* change the
 # arguments of this function.
@@ -145,10 +97,9 @@ def run_challenge_model(model, data, recordings, verbose):
 ################################################################################
 
 # Save your trained model.
-def save_challenge_model(model_folder, classes, imputer, classifier):
-    d = {'classes': classes, 'imputer': imputer, 'classifier': classifier}
+def save_challenge_model(model_folder, model):
     filename = os.path.join(model_folder, 'model.sav')
-    joblib.dump(d, filename, protocol=0)
+    joblib.dump(model, filename, protocol=0)
 
 
 # Extract features from the data.
@@ -209,6 +160,84 @@ def get_features(data, recordings):
 
     return np.asarray(features, dtype=np.float32)
 
+def preprocess_data(data_folder, verbose=0):
+    # Find data files.
+    if verbose >= 1:
+        print('Finding data files...')
+    # Find the patient data files.
+    patient_files = find_patient_files(data_folder)
+    num_patient_files = len(patient_files)
+    if num_patient_files == 0:
+        raise Exception('No data was provided.')
+    classes = ['Present', 'Unknown', 'Absent']
+    num_classes = len(classes)
+
+    # Extract the features and labels.
+    if verbose >= 1:
+        print('Extracting features and labels from the Challenge data...')
+
+    features = list()
+    labels = list()
+
+    for i in range(num_patient_files):
+        print("\r", "正在处理,预期进度：{:.2f}%:".format((i / num_patient_files) * 100, ), end='', flush=True)
+        if verbose >= 2:
+            print('    {}/{}...'.format(i + 1, num_patient_files))
+
+        hs_data = HeartSound(patient_files[i], data_folder)
+        hs_data.load_hs_note()
+        hs_data.preprocess_recordings()
+        current_patient_data = hs_data.get_patient_data()
+        current_recordings = hs_data.get_recordings()
+        # hs_data.plot_data()
+
+        # plot_data([current_recordings[0]], Fs=Fs, pic_name=get_patient_id(current_patient_data), is_show=True)
+        # Extract features.
+        current_features = get_features(current_patient_data, current_recordings)
+        features.append(current_features)
+
+        # Extract labels and use one-hot encoding.
+        current_labels = np.zeros(num_classes, dtype=int)
+        label = get_label(current_patient_data)
+        if label in classes:
+            j = classes.index(label)
+            current_labels[j] = 1
+        labels.append(current_labels)
+
+    features = np.vstack(features)
+    labels = np.vstack(labels)
+    return features, labels
+
+
+def evaluate_model(model, x, y):
+    classes = model['classes']
+    imputer = model['imputer']
+    classifier = model['classifier']
+    num_classes = len(classes)
+    # Impute missing data.
+    features = imputer.transform(x)
+
+    # Get classifier probabilities.
+    probabilities = classifier.predict_proba(features)
+    probabilities = np.asarray(probabilities, dtype=np.float32)[:, :, 1]
+    probabilities = probabilities.T
+    # Choose label with higher probability.
+    y_predict = np.argmax(probabilities, axis=1)
+    y_targ = np.argmax(y, axis=1)
+
+    labels = list()
+    for y_i in y_predict:
+        current_labels = np.zeros(num_classes, dtype=int)
+        current_labels[y_i] = 1
+        labels.append(current_labels)
+    labels = np.vstack(labels)
+
+
+    evalution_msg = classification_report(y, labels, target_names=classes)
+    kappa = cohen_kappa_score(y_targ, y_predict)
+    evalution_msg += f"kappa={kappa}\n"
+    print(evalution_msg)
+
 
 class HeartSound():
     def __init__(self, patient_file, data_folder):
@@ -240,9 +269,12 @@ class HeartSound():
         recording_information = self.current_patient_data.split('\n')[1:num_locations + 1]
         for i in range(num_locations):
             entries = recording_information[i].split(' ')
-            tsv_file = entries[3]
-            filename = os.path.join(self.data_folder, tsv_file)
-            hs_note = pd.read_csv(filename, sep='\t', header=None).to_numpy()
+            try:
+                tsv_file = entries[3]
+                filename = os.path.join(self.data_folder, tsv_file)
+                hs_note = pd.read_csv(filename, sep='\t', header=None).to_numpy()
+            except IndexError:
+                hs_note = None
             self.hs_note_list.append(hs_note)
         return self.hs_note_list
 
@@ -254,14 +286,14 @@ class HeartSound():
             # drawPic(np.array(recording).flatten(), is_show=False,
             #         title=f"{self.data_number}  location={self.recording_locations[idx]}",
             #         to_file=os.path.join(debug_result_root_path, f"{self.data_number}_{self.recording_locations[idx]}_raw.png"))
-            drawPic(np.array(processed_recording_1).flatten(), Fs=self.Fs[idx], is_show=True,
-                    extra_data=(self.hs_note_list[idx][:,0], self.hs_note_list[idx][:,2]),
-                    title=f"{self.data_number}  location={self.recording_locations[idx]}",
-                    fig_size=(12.4,4.8),
-                    to_file=os.path.join(debug_result_root_path,
-                                         f"{self.data_number}_{self.recording_locations[idx]}_clean.png"))
+            # drawPic(np.array(processed_recording_1).flatten(), Fs=self.Fs[idx], is_show=True,
+            #         extra_data=(self.hs_note_list[idx][:,0], self.hs_note_list[idx][:,2]),
+            #         title=f"{self.data_number}  location={self.recording_locations[idx]}",
+            #         fig_size=(12.4,4.8),
+            #         to_file=os.path.join(debug_result_root_path,
+            #                              f"{self.data_number}_{self.recording_locations[idx]}_clean.png"))
             # plot_data([recording, processed_recording, processed_recording_1], pic_name="proccess_test", Fs=self.Fs[idx], is_show=True)
-            self.processed_recording_list.append(processed_recording)
+            self.processed_recording_list.append(processed_recording_1)
 
     def hs_clean(self, data, Fs):
         order = int(0.3 * Fs)
@@ -289,4 +321,22 @@ class HeartSound():
             plt.show()
         plt.close()
 
+def model_random_forest(x,y):
+    classes = ['Present', 'Unknown', 'Absent']
+    # Define parameters for random forest classifier.
+    n_estimators = 10  # Number of trees in the forest.
+    max_leaf_nodes = 100  # Maximum number of leaf nodes in each tree.
+    random_state = 123  # Random state; set for reproducibility.
 
+    imputer = SimpleImputer().fit(x)
+    features = imputer.transform(x)
+    classifier = RandomForestClassifier(n_estimators=n_estimators, max_leaf_nodes=max_leaf_nodes,
+                                        random_state=random_state).fit(features, y)
+    model = {'classes': classes, 'imputer': imputer, 'classifier': classifier}
+    return model
+
+if __name__ == '__main__':
+    X_test, Y_test = preprocess_data(test_data_folder, 1)
+    model = load_challenge_model(".\\saveModels\\test",1)
+    print("测试集评估：")
+    evaluate_model(model, X_test, Y_test)
