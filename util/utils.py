@@ -63,7 +63,7 @@ def drawPic(data,  # 要绘制的数据
         x = np.linspace(0, len(data) - 1, len(data))
     plt.plot(x,data)
     if not highlight_point is None:
-        plt.plot(highlight_point, data[highlight_point], 'bx')
+        plt.plot(x[highlight_point], data[highlight_point], 'gx')
     if not extra_data is None:
         point_pattern = ['bx', 'bo', 'rx', 'ro']
         for idx in range(len(extra_data[0])):

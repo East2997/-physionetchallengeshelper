@@ -8,14 +8,13 @@
 # Import libraries and functions. You can change or remove them.
 #
 ################################################################################
-import numpy as np
 from helper_code import *
 import scipy as sp, scipy.stats, joblib
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestClassifier
 from util.utils import *
+from springer_hmm.pcgSegmentation import pcg_segment
 import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, cohen_kappa_score
 import scipy.signal
@@ -35,8 +34,8 @@ test_data_folder = "..\\data\\split_test_data"
 def train_challenge_model(data_folder, model_folder, verbose):
     # Create a folder for the model if it does not already exist.
     os.makedirs(model_folder, exist_ok=True)
-    X_train, Y_train = preprocess_data(data_folder,verbose)
-    X_test, Y_test = preprocess_data(test_data_folder,verbose)
+    X_train, Y_train = preprocess_data(data_folder, verbose)
+    X_test, Y_test = preprocess_data(test_data_folder, verbose)
 
     # Train the model.
     if verbose >= 1:
@@ -50,12 +49,12 @@ def train_challenge_model(data_folder, model_folder, verbose):
     if verbose >= 1:
         print('Done.')
 
-
-    #TODO：利用run_challenge_model()计算准确度、Kappa和损失函数
+    # TODO：利用run_challenge_model()计算准确度、Kappa和损失函数
     print("训练集评估：")
     evaluate_model(model, X_train, Y_train)
     print("测试集评估：")
     evaluate_model(model, X_test, Y_test)
+
 
 # Load your trained model. This function is *required*. You should edit this function to add your code, but do *not* change the
 # arguments of this function.
@@ -160,6 +159,7 @@ def get_features(data, recordings):
 
     return np.asarray(features, dtype=np.float32)
 
+
 def preprocess_data(data_folder, verbose=0):
     # Find data files.
     if verbose >= 1:
@@ -178,6 +178,7 @@ def preprocess_data(data_folder, verbose=0):
 
     features = list()
     labels = list()
+    pcgSeg_client = pcg_segment()
 
     for i in range(num_patient_files):
         print("\r", "正在处理,预期进度：{:.2f}%:".format((i / num_patient_files) * 100, ), end='', flush=True)
@@ -187,9 +188,14 @@ def preprocess_data(data_folder, verbose=0):
         hs_data = HeartSound(patient_files[i], data_folder)
         hs_data.load_hs_note()
         hs_data.preprocess_recordings()
+        hs_data.get_pcg_segmentation(pcgSeg_client)
+        # hs_data.plot_data_with_highlight(idx=0)
         current_patient_data = hs_data.get_patient_data()
         current_recordings = hs_data.get_recordings()
-        # hs_data.plot_data()
+
+
+        hs_data.plot_data_with_pcgseg(is_show=False)
+        1/0
 
         # plot_data([current_recordings[0]], Fs=Fs, pic_name=get_patient_id(current_patient_data), is_show=True)
         # Extract features.
@@ -231,7 +237,6 @@ def evaluate_model(model, x, y):
         current_labels[y_i] = 1
         labels.append(current_labels)
     labels = np.vstack(labels)
-
 
     evalution_msg = classification_report(y, labels, target_names=classes)
     kappa = cohen_kappa_score(y_targ, y_predict)
@@ -281,26 +286,22 @@ class HeartSound():
     def preprocess_recordings(self):
         # TODO:更多预处理
         for idx, recording in enumerate(self.recording_list):
-            processed_recording = StandardScaler().fit_transform(recording.reshape(-1, 1)).reshape(1, -1)[0]
-            processed_recording_1 = self.hs_clean(processed_recording, self.Fs[idx])
-            # drawPic(np.array(recording).flatten(), is_show=False,
-            #         title=f"{self.data_number}  location={self.recording_locations[idx]}",
-            #         to_file=os.path.join(debug_result_root_path, f"{self.data_number}_{self.recording_locations[idx]}_raw.png"))
-            # drawPic(np.array(processed_recording_1).flatten(), Fs=self.Fs[idx], is_show=True,
-            #         extra_data=(self.hs_note_list[idx][:,0], self.hs_note_list[idx][:,2]),
-            #         title=f"{self.data_number}  location={self.recording_locations[idx]}",
-            #         fig_size=(12.4,4.8),
-            #         to_file=os.path.join(debug_result_root_path,
-            #                              f"{self.data_number}_{self.recording_locations[idx]}_clean.png"))
+            # processed_recording = StandardScaler().fit_transform(recording.reshape(-1, 1)).reshape(1, -1)[0]
+            processed_recording_1 = self.hs_clean(recording, self.Fs[idx])
+            # 降采样至1000Hz
+            processed_recording_1_downSample = scipy.signal.decimate(processed_recording_1, 4)
+            self.Fs[idx] = 1000
+
+            # self.plot_data(data=processed_recording_1,idx = idx)
             # plot_data([recording, processed_recording, processed_recording_1], pic_name="proccess_test", Fs=self.Fs[idx], is_show=True)
-            self.processed_recording_list.append(processed_recording_1)
+            self.processed_recording_list.append(processed_recording_1_downSample)
 
     def hs_clean(self, data, Fs):
         order = int(0.3 * Fs)
         if order % 2 == 0:
             order += 1  # Enforce odd number
         # -> filter_signal()
-        frequency = [40, 100]
+        frequency = [25, 400]
         frequency = (
                 2 * np.array(frequency) / Fs
         )  # Normalize frequency to Nyquist Frequency (Fs/2).
@@ -311,17 +312,42 @@ class HeartSound():
         filtered = scipy.signal.filtfilt(b, a, data)
         return filtered
 
-    def plot_data(self, is_show=True):
-        data = self.recording_list[0]
-        Fs = self.Fs[0]
-        plt.figure()
-        x = np.linspace(0, data.shape[0] / Fs, len(data))
-        plt.plot(x, data)
-        if is_show:
-            plt.show()
-        plt.close()
+    def get_pcg_segmentation(self, client):
+        self.hs_pcg_seg = []
+        for idx, recording in enumerate(self.processed_recording_list):
+            pcg_seg = client.test_get_pcg_segment(audio_data=recording, Fs=self.Fs[idx])
+            self.hs_pcg_seg.append(pcg_seg)
+        return self.hs_pcg_seg
 
-def model_random_forest(x,y):
+    def plot_data(self, data,idx, is_show=True):
+        drawPic(np.array(data).flatten(), Fs=self.Fs[idx], is_show=is_show,
+                extra_data=(self.hs_note_list[idx][:, 0], self.hs_note_list[idx][:, 2]),
+                title=f"{self.data_number}  location={self.recording_locations[idx]}",
+                fig_size=(12.4, 4.8),
+                to_file=os.path.join(debug_result_root_path,
+                                     f"{self.data_number}_{self.recording_locations[idx]}_clean.png"))
+
+    def plot_data_with_pcgseg(self, is_show=True):
+        for idx,data in enumerate(self.processed_recording_list):
+            drawPic(np.array(data).flatten(), Fs=self.Fs[idx], is_show=is_show,
+                    extra_data=(self.hs_pcg_seg[idx][:, 0], self.hs_pcg_seg[idx][:, 2]),
+                    title=f"{self.data_number}  location={self.recording_locations[idx]}",
+                    fig_size=(12.4, 4.8),
+                    to_file=os.path.join(debug_result_root_path,
+                                         f"{self.data_number}_{self.recording_locations[idx]}_pcgseg.png"))
+
+    def plot_data_with_highlight(self,idx, data = None, is_show=True):
+        if data is None:
+            data = self.processed_recording_list[idx]
+        drawPic(np.array(data).flatten(), Fs=self.Fs[idx], is_show=is_show,
+                extra_data=(self.hs_note_list[idx][:, 0], self.hs_note_list[idx][:, 2]),
+                title=f"{self.data_number}  location={self.recording_locations[idx]}",
+                highlight_point=self.hs_pcg_seg[idx],
+                fig_size=(12.4, 4.8)
+                )
+
+
+def model_random_forest(x, y):
     classes = ['Present', 'Unknown', 'Absent']
     # Define parameters for random forest classifier.
     n_estimators = 10  # Number of trees in the forest.
@@ -335,8 +361,9 @@ def model_random_forest(x,y):
     model = {'classes': classes, 'imputer': imputer, 'classifier': classifier}
     return model
 
+
 if __name__ == '__main__':
     X_test, Y_test = preprocess_data(test_data_folder, 1)
-    model = load_challenge_model(".\\saveModels\\test",1)
+    model = load_challenge_model(".\\saveModels\\test", 1)
     print("测试集评估：")
     evaluate_model(model, X_test, Y_test)
