@@ -187,7 +187,7 @@ def preprocess_data(data_folder, verbose=0):
 
         hs_data = HeartSound(patient_files[i], data_folder)
         hs_data.load_hs_note()
-        hs_data.preprocess_recordings()
+        recordings = hs_data.preprocess_recordings()
         hs_data.get_pcg_segmentation(pcgSeg_client)
         # hs_data.plot_data_with_highlight(idx=0)
         current_patient_data = hs_data.get_patient_data()
@@ -214,6 +214,19 @@ def preprocess_data(data_folder, verbose=0):
     labels = np.vstack(labels)
     return features, labels
 
+def get_MAA(processed_recording_1_downSample,windowsize):
+    MAA = list()
+    MAA_location = list()
+    for i in range(int(len(processed_recording_1_downSample) / windowsize)):
+        buff = abs(processed_recording_1_downSample[i * windowsize:(i + 1) * windowsize])
+        MAA.append(max(buff))
+        buff = buff.tolist()
+        MAA_location.append(buff.index(max(buff)) + i * windowsize)
+    MAA_buff = MAA.copy()
+    MAA_buff.sort()
+    half = len(MAA_buff) // 2
+    median = (float(MAA_buff[half]) + float(MAA_buff[~half])) / 2
+    return MAA, MAA_location, median
 
 def evaluate_model(model, x, y):
     classes = model['classes']
@@ -291,6 +304,27 @@ class HeartSound():
             # 降采样至1000Hz
             processed_recording_1_downSample = scipy.signal.decimate(processed_recording_1, 4)
             self.Fs[idx] = 1000
+
+            windowsize = round(self.Fs[idx] / 2)
+            # 最大绝对值振幅19123
+            MAA = list()
+            MAA_location = list()
+            MAA, MAA_location, median = get_MAA(processed_recording_1_downSample, windowsize)
+            num = 0
+            t = processed_recording_1_downSample[19123:len(processed_recording_1_downSample)]
+            while max(MAA) > 3 * median:
+                location = MAA_location[MAA.index(max(MAA))]  # 尖峰在processed_recording_1_downSample中的位置
+                j = location - 1
+                while processed_recording_1_downSample[j] * processed_recording_1_downSample[location] > 0 and j != 0:
+                    processed_recording_1_downSample[j] = 0
+                    j = j - 1
+                j = location + 1
+                while processed_recording_1_downSample[j] * processed_recording_1_downSample[location] > 0 and len(
+                        processed_recording_1_downSample) - 1 != j:
+                    processed_recording_1_downSample[j] = 0
+                    j = j + 1
+                processed_recording_1_downSample[location] = 0
+                MAA, MAA_location, median = get_MAA(processed_recording_1_downSample, windowsize)  # 存疑，中值是否许需要更新
 
             # self.plot_data(data=processed_recording_1,idx = idx)
             # plot_data([recording, processed_recording, processed_recording_1], pic_name="proccess_test", Fs=self.Fs[idx], is_show=True)
