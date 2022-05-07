@@ -8,6 +8,8 @@
 # Import libraries and functions. You can change or remove them.
 #
 ################################################################################
+import numpy as np
+
 from helper_code import *
 import scipy as sp, scipy.stats, joblib
 from sklearn.impute import SimpleImputer
@@ -36,7 +38,7 @@ def train_challenge_model(data_folder, model_folder, verbose):
     os.makedirs(model_folder, exist_ok=True)
     X_train, Y_train = preprocess_data(data_folder, verbose)
     X_test, Y_test = preprocess_data(test_data_folder, verbose)
-
+    1/0
     # Train the model.
     if verbose >= 1:
         print('Training model...')
@@ -179,6 +181,7 @@ def preprocess_data(data_folder, verbose=0):
     features = list()
     labels = list()
     pcgSeg_client = pcg_segment()
+    # pcgSeg_client = None
 
     for i in range(num_patient_files):
         print("\r", "正在处理,预期进度：{:.2f}%:".format((i / num_patient_files) * 100, ), end='', flush=True)
@@ -187,20 +190,19 @@ def preprocess_data(data_folder, verbose=0):
 
         hs_data = HeartSound(patient_files[i], data_folder)
         hs_data.load_hs_note()
-        recordings = hs_data.preprocess_recordings()
+        recordings = hs_data.preprocess_recordings(is_MAA=True)
         hs_data.get_pcg_segmentation(pcgSeg_client)
         # hs_data.plot_data_with_highlight(idx=0)
         current_patient_data = hs_data.get_patient_data()
         current_recordings = hs_data.get_recordings()
 
 
-        hs_data.plot_data_with_pcgseg(is_show=False)
-        1/0
+        # hs_data.plot_data_with_pcgseg(is_show=False)
 
         # plot_data([current_recordings[0]], Fs=Fs, pic_name=get_patient_id(current_patient_data), is_show=True)
         # Extract features.
-        current_features = get_features(current_patient_data, current_recordings)
-        features.append(current_features)
+        # current_features = get_features(current_patient_data, current_recordings)
+        # features.append(current_features)
 
         # Extract labels and use one-hot encoding.
         current_labels = np.zeros(num_classes, dtype=int)
@@ -280,7 +282,7 @@ class HeartSound():
         return self.current_patient_data
 
     def get_recordings(self):
-        return self.recording_list
+        return self.processed_recording_list
 
     def load_hs_note(self):
         num_locations = get_num_locations(self.current_patient_data)
@@ -296,7 +298,7 @@ class HeartSound():
             self.hs_note_list.append(hs_note)
         return self.hs_note_list
 
-    def preprocess_recordings(self):
+    def preprocess_recordings(self, is_MAA=True):
         # TODO:更多预处理
         for idx, recording in enumerate(self.recording_list):
             # processed_recording = StandardScaler().fit_transform(recording.reshape(-1, 1)).reshape(1, -1)[0]
@@ -304,27 +306,27 @@ class HeartSound():
             # 降采样至1000Hz
             processed_recording_1_downSample = scipy.signal.decimate(processed_recording_1, 4)
             self.Fs[idx] = 1000
-
-            windowsize = round(self.Fs[idx] / 2)
-            # 最大绝对值振幅19123
-            MAA = list()
-            MAA_location = list()
-            MAA, MAA_location, median = get_MAA(processed_recording_1_downSample, windowsize)
-            num = 0
-            t = processed_recording_1_downSample[19123:len(processed_recording_1_downSample)]
-            while max(MAA) > 3 * median:
-                location = MAA_location[MAA.index(max(MAA))]  # 尖峰在processed_recording_1_downSample中的位置
-                j = location - 1
-                while processed_recording_1_downSample[j] * processed_recording_1_downSample[location] > 0 and j != 0:
-                    processed_recording_1_downSample[j] = 0
-                    j = j - 1
-                j = location + 1
-                while processed_recording_1_downSample[j] * processed_recording_1_downSample[location] > 0 and len(
-                        processed_recording_1_downSample) - 1 != j:
-                    processed_recording_1_downSample[j] = 0
-                    j = j + 1
-                processed_recording_1_downSample[location] = 0
-                MAA, MAA_location, median = get_MAA(processed_recording_1_downSample, windowsize)  # 存疑，中值是否许需要更新
+            if is_MAA:
+                windowsize = round(self.Fs[idx] / 2)
+                # 最大绝对值振幅19123
+                MAA = list()
+                MAA_location = list()
+                MAA, MAA_location, median = get_MAA(processed_recording_1_downSample, windowsize)
+                num = 0
+                t = processed_recording_1_downSample[19123:len(processed_recording_1_downSample)]
+                while max(MAA) > 3 * median:
+                    location = MAA_location[MAA.index(max(MAA))]  # 尖峰在processed_recording_1_downSample中的位置
+                    j = location - 1
+                    while processed_recording_1_downSample[j] * processed_recording_1_downSample[location] > 0 and j != 0:
+                        processed_recording_1_downSample[j] = 0
+                        j = j - 1
+                    j = location + 1
+                    while processed_recording_1_downSample[j] * processed_recording_1_downSample[location] > 0 and len(
+                            processed_recording_1_downSample) - 1 != j:
+                        processed_recording_1_downSample[j] = 0
+                        j = j + 1
+                    processed_recording_1_downSample[location] = 0
+                    MAA, MAA_location, median = get_MAA(processed_recording_1_downSample, windowsize)  # 存疑，中值是否许需要更新
 
             # self.plot_data(data=processed_recording_1,idx = idx)
             # plot_data([recording, processed_recording, processed_recording_1], pic_name="proccess_test", Fs=self.Fs[idx], is_show=True)
@@ -346,11 +348,27 @@ class HeartSound():
         filtered = scipy.signal.filtfilt(b, a, data)
         return filtered
 
-    def get_pcg_segmentation(self, client):
+    def get_pcg_segmentation(self, client=None):
         self.hs_pcg_seg = []
+        pcg_cache_dir = os.path.join(os.path.dirname(self.data_folder), "pcg_cache")
+        check_dir(pcg_cache_dir)
+        pcg_cache_path = os.path.join(pcg_cache_dir, f"{self.data_number}_pcg.npy")
+        try:
+            pcg_cache = np.load(pcg_cache_path, allow_pickle=True).item()
+        except FileNotFoundError:
+            pcg_cache = {}
+        is_save_pcg_cache = False
         for idx, recording in enumerate(self.processed_recording_list):
-            pcg_seg = client.test_get_pcg_segment(audio_data=recording, Fs=self.Fs[idx])
+            if self.recording_locations[idx] in pcg_cache.keys():
+                pcg_seg = pcg_cache.get(self.recording_locations[idx])
+            else:
+                print("here")
+                pcg_seg = client.test_get_pcg_segment(audio_data=recording, Fs=self.Fs[idx])
+                pcg_cache[self.recording_locations[idx]] = pcg_seg
+                is_save_pcg_cache = True
             self.hs_pcg_seg.append(pcg_seg)
+        if is_save_pcg_cache:
+            np.save(pcg_cache_path, pcg_cache)
         return self.hs_pcg_seg
 
     def plot_data(self, data,idx, is_show=True):
